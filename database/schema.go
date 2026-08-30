@@ -1,9 +1,7 @@
 package database
 
-import "database/sql"
-
-func Tables(db *sql.DB) ([]string, error) {
-	rows, err := db.Query(`
+func (db *Database) Tables() ([]string, error) {
+	rows, err := db.DB.Query(`
 		SELECT name
 		FROM sqlite_master
 		WHERE type = 'table'
@@ -41,8 +39,8 @@ type Column struct {
 	PrimaryKey bool
 }
 
-func Schema(db *sql.DB, table string) ([]Column, error) {
-	rows, err := db.Query("PRAGMA table_info(" + table + ");")
+func (db *Database) Schema(table string) ([]Column, error) {
+	rows, err := db.DB.Query("PRAGMA table_info(" + table + ");")
 	if err != nil {
 		return nil, err
 	}

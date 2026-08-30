@@ -1,7 +1,6 @@
 package database
 
 import (
-	"database/sql"
 	"strings"
 )
 
@@ -11,7 +10,7 @@ type QueryResult struct {
 	RowsAffected int64
 }
 
-func Execute(db *sql.DB, query string) (*QueryResult, error) {
+func (db *Database) Execute(query string) (*QueryResult, error) {
 	query = strings.TrimSpace(query)
 
 	if query == "" {
@@ -22,15 +21,15 @@ func Execute(db *sql.DB, query string) (*QueryResult, error) {
 
 	switch firstWord {
 	case "SELECT", "PRAGMA", "WITH":
-		return executeQuery(db, query)
+		return db.executeQuery(query)
 
 	default:
-		return executeStatement(db, query)
+		return db.executeStatement(query)
 	}
 }
 
-func executeQuery(db *sql.DB, query string) (*QueryResult, error) {
-	rows, err := db.Query(query)
+func (db *Database) executeQuery(query string) (*QueryResult, error) {
+	rows, err := db.DB.Query(query)
 	if err != nil {
 		return nil, err
 	}
@@ -61,11 +60,15 @@ func executeQuery(db *sql.DB, query string) (*QueryResult, error) {
 		result.Rows = append(result.Rows, values)
 	}
 
-	return result, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return result, nil
 }
 
-func executeStatement(db *sql.DB, query string) (*QueryResult, error) {
-	result, err := db.Exec(query)
+func (db *Database) executeStatement(query string) (*QueryResult, error) {
+	result, err := db.DB.Exec(query)
 	if err != nil {
 		return nil, err
 	}

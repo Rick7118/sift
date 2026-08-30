@@ -6,11 +6,26 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-func Open(path string) (*sql.DB, error) {
+type Database struct {
+	DB *sql.DB
+}
+
+func Open(path string) (*Database, error) {
 	db, err := sql.Open("sqlite", path)
 	if err != nil {
 		return nil, err
 	}
 
-	return db, nil
+	if err := db.Ping(); err != nil {
+		db.Close()
+		return nil, err
+	}
+
+	return &Database{
+		DB: db,
+	}, nil
+}
+
+func (db *Database) Close() error {
+	return db.DB.Close()
 }

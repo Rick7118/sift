@@ -6,8 +6,10 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"os/signal"
 	"runtime"
 	"strings"
+	"syscall"
 
 	"github.com/Rick7118/sift/database"
 )
@@ -27,6 +29,21 @@ func main() {
 	scanner := bufio.NewScanner(os.Stdin)
 	var queryBuilder strings.Builder
 
+	// Handle Ctrl+C.
+	signalChan := make(chan os.Signal, 1)
+	signal.Notify(signalChan, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(signalChan)
+
+	go func() {
+		for range signalChan {
+			if queryBuilder.Len() > 0 {
+				queryBuilder.Reset()
+				fmt.Println("\nQuery cancelled.")
+				fmt.Print("sift> ")
+			}
+		}
+	}()
+
 	for {
 		if queryBuilder.Len() == 0 {
 			fmt.Print("sift> ")
@@ -44,6 +61,15 @@ func main() {
 			continue
 		}
 
+		// Allow .cancel even while building a multiline query.
+		if strings.EqualFold(line, ".cancel") {
+			queryBuilder.Reset()
+			fmt.Println("Query cancelled.")
+			fmt.Println()
+			continue
+		}
+
+		// Handle Sift commands when we're not building a SQL query.
 		if queryBuilder.Len() == 0 && strings.HasPrefix(line, ".") {
 			if handleCommand(db, line) {
 				break
@@ -55,6 +81,7 @@ func main() {
 		queryBuilder.WriteString(line)
 		queryBuilder.WriteString(" ")
 
+		// Wait for the semicolon before executing SQL.
 		if !strings.HasSuffix(line, ";") {
 			continue
 		}
@@ -62,9 +89,10 @@ func main() {
 		query := strings.TrimSpace(queryBuilder.String())
 		queryBuilder.Reset()
 
-		result, err := database.Execute(db, query)
+		result, err := db.Execute(query)
 		if err != nil {
 			fmt.Println("Error:", err)
+			fmt.Println()
 			continue
 		}
 
@@ -87,7 +115,7 @@ func main() {
 	}
 }
 
-func handleCommand(db interface{}, command string) bool {
+func handleCommand(db *database.Database, command string) bool {
 	parts := strings.Fields(command)
 
 	if len(parts) == 0 {
@@ -116,6 +144,11 @@ func handleCommand(db interface{}, command string) bool {
 	case ".clear":
 		clearScreen()
 
+	case ".cancel":
+		// Normally handled before reaching here.
+		fmt.Println("No query to cancel.")
+		fmt.Println()
+
 	default:
 		fmt.Printf("Unknown command: %s\n", parts[0])
 		fmt.Println("Type '.help' for available commands.")
@@ -129,23 +162,72 @@ func printHelp() {
 	fmt.Println()
 	fmt.Println("Sift commands:")
 	fmt.Println()
-	fmt.Println("  .tables          List all tables")
-	fmt.Println("  .schema <table> Show table structure")
-	fmt.Println("  .clear           Clear the terminal")
-	fmt.Println("  .help            Show this help message")
-	fmt.Println("  .exit            Exit Sift")
+	fmt.Println("  .tables           List all tables")
+	fmt.Println("  .schema <table>   Show table structure")
+	fmt.Println("  .clear            Clear the terminal")
+	fmt.Println("  .cancel           Cancel current SQL query")
+	fmt.Println("  .help             Show this help message")
+	fmt.Println("  .exit             Exit Sift")
 	fmt.Println()
 }
 
-func printTables(db interface{}) {
-	// This will be implemented after we expose the database
-	// connection through the proper type.
-	fmt.Println("Database introspection coming soon.")
+func printTables(db *database.Database) {
+	tables, err := db.Tables()
+	if err != nil {
+		fmt.Println("Error:", err)
+		return
+	}
+
+	fmt.Println()
+
+	if len(tables) == 0 {
+		fmt.Println("(no tables)")
+		fmt.Println()
+		return
+	}
+
+	for _, table := range tables {
+		fmt.Println(table)
+	}
+
 	fmt.Println()
 }
 
-func printSchema(db interface{}, table string) {
-	fmt.Printf("Schema inspection for '%s' coming soon.\n\n", table)
+func printSchema(db *database.Database, table string) {
+	columns, err := db.Schema(table)
+	if err != nil {
+		fmt.Println("Error:", err)
+		return
+	}
+
+	fmt.Println()
+
+	if len(columns) == 0 {
+		fmt.Printf("Table '%s' not found.\n\n", table)
+		return
+	}
+
+	fmt.Printf(
+		"%-20s %-20s %-10s %-12s\n",
+		"COLUMN",
+		"TYPE",
+		"NOT NULL",
+		"PRIMARY KEY",
+	)
+
+	fmt.Println(strings.Repeat("-", 66))
+
+	for _, column := range columns {
+		fmt.Printf(
+			"%-20s %-20s %-10v %-12v\n",
+			column.Name,
+			column.Type,
+			column.NotNull,
+			column.PrimaryKey,
+		)
+	}
+
+	fmt.Println()
 }
 
 func clearScreen() {
